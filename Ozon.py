@@ -6,11 +6,6 @@ import tempfile
 import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import zipfile
-from dotenv import load_dotenv
-
-# Загрузка переменных окружения из .env, если он есть
-load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
@@ -19,12 +14,14 @@ logger = logging.getLogger(__name__)
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
-# Проверим, есть ли шаблон в папке со скриптом
+# НЕ проверяем наличие шаблона через raise
 if not os.path.exists(TEMPLATE_PATH):
-    raise FileNotFoundError(f"Шаблон {TEMPLATE_FILENAME} не найден рядом со скриптом!")
+    logger.warning(f"[WARN] Шаблон {TEMPLATE_FILENAME} не найден!")
+
+allowed_prefixes = ("AB", "AD", "AC", "AA", "FA", "XS", "MP")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отправьте основной Excel-файл. Шаблон будет использован автоматически из папки со скриптом.")
+    await update.message.reply_text("Отправьте основной Excel-файл. Шаблон и база уже находятся рядом со скриптом.")
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user.username
@@ -36,24 +33,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await file.download_to_drive(f.name)
         data_file = f.name
 
-    logger.info("[LOG] Загрузка шаблона...")
+    logger.info("[LOG] Чтение входного файла...")
     df = pd.read_excel(data_file, header=None, skiprows=3)
-    logger.info("[LOG] Чтение данных из 4-й строки")
 
-    # Задача 1: Замена значений в колонках E и F
-    def replace_passport_and_birthdate(value):
-        allowed_prefixes = ("AD", "AB", "FA", "XS", "AE", "AC", "AA")
-        if isinstance(value, str) and not value.startswith(allowed_prefixes):
-            return "AB0663236"
-        return value
+    # --- Задача 1: замена паспортов и дат рождения ---
+    def should_replace(val):
+        if pd.isna(val):
+            return True
+        val = str(val).strip().upper()
+        return not any(val.startswith(prefix) for prefix in allowed_prefixes)
 
-    df[4] = df[4].apply(replace_passport_and_birthdate)
-    df[5] = ["23,12,1988" if val == "AB0663236" else old for val, old in zip(df[4], df[5])]
+    for idx, val in df[4].items():
+        if should_replace(val):
+            df.at[idx, 4] = "AB0663236"
+            df.at[idx, 5] = "23,12,1988"
 
-    # Задача 2: Добавление 0 к 5-значным кодам в колонке K
+    # --- Задача 2: добавление 0 к 5-значным кодам в колонке K ---
     df[10] = df[10].apply(lambda x: f"0{x}" if pd.notna(x) and isinstance(x, (int, float, str)) and len(str(int(float(x)))) == 5 else x)
 
-    # Задача 3: Удаление повторяющихся посылок по колонке A
+    # --- Задача 3: удаление дубликатов по колонке A ---
     seen = set()
     for idx, val in df[0].items():
         val = str(val).strip()
@@ -62,7 +60,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             seen.add(val)
 
-    # Разделение на чанки по 1000 строк
+    # --- Разделение по чанкам и запись в шаблон ---
     chunk_size = 1000
     parts = [df[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
 
@@ -82,27 +80,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output_files.append(output_path)
         logger.info(f"[LOG] Сохранён файл: {filename}")
 
-    # Создание ZIP архива
-    zip_path = os.path.join(tempfile.gettempdir(), "AllPackages.zip")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for file_path in output_files:
-            arcname = os.path.basename(file_path)
-            zipf.write(file_path, arcname)
-            logger.info(f"[LOG] Добавлен в архив: {arcname}")
-
-    await update.message.reply_text(f"Обработка завершена. Отправляю архив с {len(output_files)} файлами.")
-    await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
+    await update.message.reply_text(f"Обработка завершена. Файлов: {len(output_files)}")
+    for path in output_files:
+        await context.bot.send_document(chat_id=update.message.chat_id, document=open(path, 'rb'))
 
 def main():
-    # Получаем токен из переменной окружения
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-    if not BOT_TOKEN:
-        raise ValueError("❌ Переменная окружения BOT_TOKEN не найдена! Задайте её в .env или в настройках Railway.")
-
-    print("✅ BOT_TOKEN успешно загружен, запускаю бота...")
-
-    app = ApplicationBuilder().token(7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic).build()
+    app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
