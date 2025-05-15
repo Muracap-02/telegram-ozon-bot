@@ -12,8 +12,6 @@ import zipfile
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-REPLACE_PREFIXES = tuple("12456789MRTGKZECUVFBNDGHJLKQIP")
-
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
@@ -37,10 +35,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("[LOG] Загрузка шаблона...")
     df = pd.read_excel(data_file, header=None, skiprows=3)
     logger.info("[LOG] Чтение данных из 4-й строки")
-
-    # Задача 1: Замена паспортных данных и дат
-    df[4] = df[4].apply(lambda x: "AB0663236" if isinstance(x, str) and x[:1].upper() in REPLACE_PREFIXES else x)
-    df[5] = ["23,12,1988" if isinstance(e, str) and e[:1].upper() in REPLACE_PREFIXES else f for e, f in zip(df[4], df[5])]
 
     # Задача 2: Добавление 0 к 5-значным кодам в колонке K
     df[10] = df[10].apply(lambda x: f"0{x}" if pd.notna(x) and isinstance(x, (int, float, str)) and len(str(int(float(x)))) == 5 else x)
