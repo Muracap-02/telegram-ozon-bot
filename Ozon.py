@@ -7,6 +7,10 @@ import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import zipfile
+from dotenv import load_dotenv
+
+# Загрузка переменных окружения из .env
+load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
@@ -90,7 +94,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
 def main():
-    app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("❌ Переменная окружения BOT_TOKEN не найдена. Задайте её в .env или в Railway.")
+
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
