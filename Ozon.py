@@ -90,7 +90,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
 def main():
-    app = ApplicationBuilder().token("7872241701:AAEjHrdobGbP6UjlR3esKs3p_QCpfw3uwWw").build()
+    app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
