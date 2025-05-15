@@ -36,6 +36,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     df = pd.read_excel(data_file, header=None, skiprows=3)
     logger.info("[LOG] Чтение данных из 4-й строки")
 
+    # Задача 1: Замена значений в колонках E и F
+    def replace_passport_and_birthdate(value):
+        allowed_prefixes = ("AD", "AB", "FA", "XS", "AE", "AC", "AA")
+        if isinstance(value, str) and not value.startswith(allowed_prefixes):
+            return "AB0663236"
+        return value
+
+    df[4] = df[4].apply(replace_passport_and_birthdate)
+    df[5] = ["23,12,1988" if val == "AB0663236" else old for val, old in zip(df[4], df[5])]
+
     # Задача 2: Добавление 0 к 5-значным кодам в колонке K
     df[10] = df[10].apply(lambda x: f"0{x}" if pd.notna(x) and isinstance(x, (int, float, str)) and len(str(int(float(x)))) == 5 else x)
 
