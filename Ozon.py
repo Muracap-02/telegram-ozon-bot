@@ -6,6 +6,7 @@ import tempfile
 import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+import zipfile
 
 # Настройка логирования
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
@@ -73,9 +74,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output_files.append(output_path)
         logger.info(f"[LOG] Сохранён файл: {filename}")
 
-    await update.message.reply_text(f"Обработка завершена. Файлов: {len(output_files)}")
-    for path in output_files:
-        await context.bot.send_document(chat_id=update.message.chat_id, document=open(path, 'rb'))
+    # Создание ZIP архива
+    zip_path = os.path.join(tempfile.gettempdir(), "AllPackages.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in output_files:
+            arcname = os.path.basename(file_path)
+            zipf.write(file_path, arcname)
+            logger.info(f"[LOG] Добавлен в архив: {arcname}")
+
+    await update.message.reply_text(f"Обработка завершена. Отправляю архив с {len(output_files)} файлами.")
+    await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
 def main():
     app = ApplicationBuilder().token("7872241701:AAEjHrdobGbP6UjlR3esKs3p_QCpfw3uwWw").build()
