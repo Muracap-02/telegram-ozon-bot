@@ -6,6 +6,7 @@ import tempfile
 import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
+import zipfile
 
 # Настройка логирования
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
@@ -18,7 +19,7 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 if not os.path.exists(TEMPLATE_PATH):
     logger.warning(f"[WARN] Шаблон {TEMPLATE_FILENAME} не найден!")
 
-allowed_prefixes = ("AB", "AD", "AC", "AA", "FA", "XS", "MP")
+allowed_prefixes = ("AB", "AC", "AA", "AD", "FA", "XS")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправьте основной Excel-файл. Шаблон и база уже находятся рядом со скриптом.")
@@ -48,8 +49,17 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             df.at[idx, 4] = "AB0663236"
             df.at[idx, 5] = "23,12,1988"
 
-    # --- Задача 2: добавление 0 к 5-значным кодам в колонке K ---
-    df[10] = df[10].apply(lambda x: f"0{x}" if pd.notna(x) and isinstance(x, (int, float, str)) and len(str(int(float(x)))) == 5 else x)
+    # --- Задача 2: добавление 0 к 5-значным кодам в колонке K (index 10) ---
+    def fix_code(x):
+        try:
+            s = str(int(float(x)))
+            if len(s) == 5:
+                return "0" + s
+            return x
+        except:
+            return x
+
+    df[10] = df[10].apply(fix_code)
 
     # --- Задача 3: удаление дубликатов по колонке A ---
     seen = set()
@@ -80,9 +90,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output_files.append(output_path)
         logger.info(f"[LOG] Сохранён файл: {filename}")
 
-    await update.message.reply_text(f"Обработка завершена. Файлов: {len(output_files)}")
-    for path in output_files:
-        await context.bot.send_document(chat_id=update.message.chat_id, document=open(path, 'rb'))
+    # --- Архивация всех файлов в один ZIP ---
+    zip_path = os.path.join(tempfile.gettempdir(), f"AllPackageEC_{user}.zip")
+    with zipfile.ZipFile(zip_path, 'w') as zipf:
+        for file_path in output_files:
+            zipf.write(file_path, os.path.basename(file_path))
+
+    await update.message.reply_text(f"Обработка завершена. Файлы упакованы в архив.")
+    await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
 def main():
     app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
