@@ -9,7 +9,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 import zipfile
 from dotenv import load_dotenv
 
-# Загрузка переменных окружения из .env
+# Загрузка переменных окружения из .env, если он есть
 load_dotenv()
 
 # Настройка логирования
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
-# Проверим, есть ли шаблон в папке
+# Проверим, есть ли шаблон в папке со скриптом
 if not os.path.exists(TEMPLATE_PATH):
     raise FileNotFoundError(f"Шаблон {TEMPLATE_FILENAME} не найден рядом со скриптом!")
 
@@ -94,11 +94,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
 def main():
+    # Получаем токен из переменной окружения
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    if not BOT_TOKEN:
-        raise ValueError("❌ Переменная окружения BOT_TOKEN не найдена. Задайте её в .env или в Railway.")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    if not BOT_TOKEN:
+        raise ValueError("❌ Переменная окружения BOT_TOKEN не найдена! Задайте её в .env или в настройках Railway.")
+
+    print("✅ BOT_TOKEN успешно загружен, запускаю бота...")
+
+    app = ApplicationBuilder().token(7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
