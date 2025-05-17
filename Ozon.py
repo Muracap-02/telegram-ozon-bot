@@ -1,9 +1,9 @@
 import os
 import pandas as pd
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, MessageHandler, filters,
-    ContextTypes, CommandHandler, ConversationHandler
+    ContextTypes, CommandHandler, CallbackQueryHandler
 )
 import tempfile
 import logging
@@ -11,57 +11,50 @@ from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import zipfile
 
-# Логирование
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
-# Стейты
-CHOOSE_MODE, WAIT_FILE = range(2)
-user_mode = {}
+MODE_CHOICE = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["Обработать на части", "Макрос Пасспорт"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("Выберите режим:", reply_markup=reply_markup)
-    return CHOOSE_MODE
+    keyboard = [
+        [InlineKeyboardButton("▶️ Обработать на части", callback_data="chunk")],
+        [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Выберите режим обработки:", reply_markup=reply_markup)
 
-async def choose_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    choice = update.message.text
-    user_id = update.message.from_user.id
+async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    if choice not in ["Обработать на части", "Макрос Пасспорт"]:
-        await update.message.reply_text("Пожалуйста, выберите один из вариантов.")
-        return CHOOSE_MODE
+    user_id = query.from_user.id
+    MODE_CHOICE[user_id] = query.data
 
-    user_mode[user_id] = choice
-    await update.message.reply_text("Отправьте Excel-файл для обработки.")
-    return WAIT_FILE
+    await query.message.reply_text("Отправьте Excel-файл для выбранной обработки.")
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_id = user.id
-    document = update.message.document
-    logger.info(f"[LOG] Файл от @{user.username}: {document.file_name}")
+    mode = MODE_CHOICE.get(user_id)
 
+    if not mode:
+        await update.message.reply_text("Сначала выберите режим через /start.")
+        return
+
+    document = update.message.document
     file = await context.bot.get_file(document.file_id)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         await file.download_to_drive(f.name)
         data_file = f.name
 
-    mode = user_mode.get(user_id)
-
-    if mode == "Обработать на части":
+    if mode == "chunk":
         await process_in_parts(update, context, data_file)
-    elif mode == "Макрос Пасспорт":
+    elif mode == "passport":
         await process_passport_macro(update, context, data_file)
-    else:
-        await update.message.reply_text("Ошибка: режим обработки не выбран.")
-        return ConversationHandler.END
-
-    return ConversationHandler.END
 
 async def process_in_parts(update, context, data_file):
     logger.info("[LOG] Обработка: разбивка на части")
@@ -105,7 +98,7 @@ async def process_in_parts(update, context, data_file):
         output_files.append(output_path)
         logger.info(f"[LOG] Сохранён файл: {filename}")
 
-    zip_path = os.path.join(tempfile.gettempdir(), f"AllPackageEC_{user.username}.zip")
+    zip_path = os.path.join(tempfile.gettempdir(), f"AllPackageEC_{update.message.from_user.username}.zip")
     with zipfile.ZipFile(zip_path, 'w') as zipf:
         for file_path in output_files:
             zipf.write(file_path, os.path.basename(file_path))
@@ -132,18 +125,12 @@ async def process_passport_macro(update, context, data_file):
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_path, 'rb'))
 
 def main():
-    app = ApplicationBuilder().token("YOUR_TOKEN_HERE").build()
+    app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            CHOOSE_MODE: [MessageHandler(filters.TEXT, choose_mode)],
-            WAIT_FILE: [MessageHandler(filters.Document.FileExtension("xlsx"), handle_file)],
-        },
-        fallbacks=[],
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(mode_selected))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
 
-    app.add_handler(conv_handler)
     logger.info("[LOG] Бот запущен...")
     app.run_polling()
 
