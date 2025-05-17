@@ -19,8 +19,6 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 if not os.path.exists(TEMPLATE_PATH):
     logger.warning(f"[WARN] Шаблон {TEMPLATE_FILENAME} не найден!")
 
-allowed_prefixes = ("AB", "AC", "AA", "AD", "FA", "XS")
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправьте основной Excel-файл. Шаблон и база уже находятся рядом со скриптом.")
 
@@ -36,18 +34,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info("[LOG] Чтение входного файла...")
     df = pd.read_excel(data_file, header=None, skiprows=3)
-
-    # --- Задача 1: замена паспортов и дат рождения ---
-    def should_replace(val):
-        if pd.isna(val):
-            return True
-        val = str(val).strip().upper()
-        return not any(val.startswith(prefix) for prefix in allowed_prefixes)
-
-    for idx, val in df[4].items():
-        if should_replace(val):
-            df.at[idx, 4] = "AB0663236"
-            df.at[idx, 5] = "23,12,1988"
 
     # --- Задача 2: добавление 0 к 5-значным кодам в колонке K (index 10) ---
     def fix_code(x):
