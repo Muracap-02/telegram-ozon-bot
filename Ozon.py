@@ -11,43 +11,42 @@ from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import zipfile
 
-logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
+LOG_FILE = "bot.log"
+
+logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO, filename=LOG_FILE)
 logger = logging.getLogger(__name__)
 
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
-
 MODE_CHOICE = {}
+
 LOGO_URL = "https://sdmntprnortheu.oaiusercontent.com/files/00000000-e354-61f4-96fa-e3575a0560e9/raw?se=2025-05-18T17%3A42%3A35Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-18T09%3A21%3A08Z&ske=2025-05-19T09%3A21%3A08Z&sks=b&skv=2024-08-04&sig=jryFrwnA9%2BlNVxH%2B7pMu1GRs2SeldZaRWxZgXWiiVx4%3D"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+def get_main_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ Обработать на части", callback_data="chunk")],
         [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+        [InlineKeyboardButton("📞 Поддержка: +998334743434", url="tel:+998334743434")],
+        [InlineKeyboardButton("🗑 Удалить лог", callback_data="clear_log")]
+    ])
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_photo(
         photo=LOGO_URL,
-        caption="👋 Добро пожаловать в бот для обработки Excel-файлов!\n\nПожалуйста, выберите режим обработки:",
-        reply_markup=reply_markup
+        caption="👋 Добро пожаловать!\nВыберите, что вы хотите сделать:",
+        reply_markup=get_main_keyboard()
     )
 
 async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     user_id = query.from_user.id
     MODE_CHOICE[user_id] = query.data
 
-    await query.message.reply_photo(
-        photo=LOGO_URL,
-        caption="📎 Пожалуйста, отправьте Excel-файл для выбранной обработки."
-    )
+    await query.message.reply_text("📎 Пожалуйста, отправьте Excel-файл для выбранной обработки.")
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    user_id = user.id
+    user_id = update.message.from_user.id
     mode = MODE_CHOICE.get(user_id)
 
     if not mode:
@@ -72,9 +71,7 @@ async def process_in_parts(update, context, data_file):
     def fix_code(x):
         try:
             s = str(int(float(x)))
-            if len(s) == 5:
-                return "0" + s
-            return x
+            return "0" + s if len(s) == 5 else x
         except:
             return x
 
@@ -90,18 +87,16 @@ async def process_in_parts(update, context, data_file):
 
     chunk_size = 1000
     parts = [df[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
-
     output_files = []
+
     for idx, part in enumerate(parts):
         wb = load_workbook(TEMPLATE_PATH)
         ws = wb.active
-
         for r_idx, row in enumerate(dataframe_to_rows(part, index=False, header=False), start=4):
             for c_idx, value in enumerate(row, start=1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
 
-        start_range = idx * chunk_size
-        filename = f"AllPackageEC_{start_range}.xlsx"
+        filename = f"AllPackageEC_{idx * chunk_size}.xlsx"
         output_path = os.path.join(tempfile.gettempdir(), filename)
         wb.save(output_path)
         output_files.append(output_path)
@@ -138,27 +133,31 @@ async def process_passport_macro(update, context, data_file):
     await send_final_buttons(update, context)
 
 async def send_final_buttons(update, context):
-    keyboard = [
-        [InlineKeyboardButton("🔁 Начать заново", callback_data="restart")],
-        [InlineKeyboardButton("📞 Поддержка: +998334743434", url="tel:+998334743434")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await context.bot.send_message(
         chat_id=update.message.chat_id,
         text="Что вы хотите сделать дальше? 👇",
-        reply_markup=reply_markup
+        reply_markup=get_main_keyboard()
     )
 
-async def restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await start(update, context)
+async def handle_clear_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        if os.path.exists(LOG_FILE):
+            os.remove(LOG_FILE)
+            await query.message.reply_text("🗑 Лог-файл успешно удалён.")
+        else:
+            await query.message.reply_text("ℹ️ Лог-файл уже был удалён.")
+    except Exception as e:
+        await query.message.reply_text(f"❌ Ошибка при удалении лога: {e}")
 
 def main():
     app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(mode_selected, pattern="^(chunk|passport)$"))
-    app.add_handler(CallbackQueryHandler(restart, pattern="^restart$"))
+    app.add_handler(CallbackQueryHandler(handle_clear_log, pattern="^clear_log$"))
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
 
     logger.info("[LOG] Бот запущен...")
