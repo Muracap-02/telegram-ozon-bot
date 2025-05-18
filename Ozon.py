@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     ApplicationBuilder, MessageHandler, filters,
     ContextTypes, CommandHandler, CallbackQueryHandler
@@ -20,6 +20,8 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 MODE_CHOICE = {}
 LOG_FILE_PATH = "bot.log"
 
+LOGO_URL = "https://sdmntprnortheu.oaiusercontent.com/files/00000000-e354-61f4-96fa-e3575a0560e9/raw?se=2025-05-18T17%3A42%3A35Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-18T09%3A21%3A08Z&ske=2025-05-19T09%3A21%3A08Z&sks=b&skv=2024-08-04&sig=jryFrwnA9%2BlNVxH%2B7pMu1GRs2SeldZaRWxZgXWiiVx4%3D"
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ Обработать на части", callback_data="chunk")],
@@ -27,8 +29,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📞 Поддержка: +998334743434", url="tel:+998334743434")],
         [InlineKeyboardButton("🗑 Удалить лог", callback_data="clear_log")]
     ])
-    await update.message.reply_text(
-        "👋 Добро пожаловать!\nВыберите режим обработки:",
+
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id,
+        photo=LOGO_URL,
+        caption="👋 Добро пожаловать!\nВыберите режим обработки:",
         reply_markup=keyboard
     )
 
@@ -146,7 +151,7 @@ async def show_main_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📞 Поддержка: +998334743434", url="tel:+998334743434")],
         [InlineKeyboardButton("🗑 Удалить лог", callback_data="clear_log")]
     ])
-    await context.bot.send_message(chat_id=update.message.chat_id, text="Что вы хотите сделать дальше?", reply_markup=keyboard)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Что вы хотите сделать дальше?", reply_markup=keyboard)
 
 async def clear_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
