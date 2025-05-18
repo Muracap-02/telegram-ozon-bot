@@ -11,17 +11,21 @@ from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 import zipfile
 
+# Путь к лог-файлу
 LOG_FILE = "bot.log"
-
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO, filename=LOG_FILE)
 logger = logging.getLogger(__name__)
 
+# Шаблон Excel
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
-MODE_CHOICE = {}
 
+# Логотип
 LOGO_URL = "https://sdmntprnortheu.oaiusercontent.com/files/00000000-e354-61f4-96fa-e3575a0560e9/raw?se=2025-05-18T17%3A42%3A35Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=b32d65cd-c8f1-46fb-90df-c208671889d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-18T09%3A21%3A08Z&ske=2025-05-19T09%3A21%3A08Z&sks=b&skv=2024-08-04&sig=jryFrwnA9%2BlNVxH%2B7pMu1GRs2SeldZaRWxZgXWiiVx4%3D"
 
+MODE_CHOICE = {}
+
+# Основные кнопки
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("▶️ Обработать на части", callback_data="chunk")],
@@ -30,6 +34,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("🗑 Удалить лог", callback_data="clear_log")]
     ])
 
+# Старт
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_photo(
         photo=LOGO_URL,
@@ -37,14 +42,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_main_keyboard()
     )
 
+# Выбор режима
 async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     MODE_CHOICE[user_id] = query.data
 
-    await query.message.reply_text("📎 Пожалуйста, отправьте Excel-файл для выбранной обработки.")
+    await context.bot.send_message(
+        chat_id=query.message.chat.id,
+        text="📎 Пожалуйста, отправьте Excel-файл для выбранной обработки."
+    )
 
+# Обработка файла
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     mode = MODE_CHOICE.get(user_id)
@@ -64,6 +74,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif mode == "passport":
         await process_passport_macro(update, context, data_file)
 
+# Обработка на части
 async def process_in_parts(update, context, data_file):
     logger.info("[LOG] Обработка: разбивка на части")
     df = pd.read_excel(data_file, header=None, skiprows=3)
@@ -109,9 +120,9 @@ async def process_in_parts(update, context, data_file):
 
     await update.message.reply_text("✅ Обработка завершена. Отправляю архив...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
-
     await send_final_buttons(update, context)
 
+# Макрос Пасспорт
 async def process_passport_macro(update, context, data_file):
     logger.info("[LOG] Выполняется макрос 'Пасспорт'")
     wb = load_workbook(data_file)
@@ -129,16 +140,18 @@ async def process_passport_macro(update, context, data_file):
 
     await update.message.reply_text("✅ Макрос выполнен. Отправляю файл...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_path, 'rb'))
-
     await send_final_buttons(update, context)
 
+# Кнопки после завершения
 async def send_final_buttons(update, context):
+    chat_id = update.effective_chat.id
     await context.bot.send_message(
-        chat_id=update.message.chat_id,
+        chat_id=chat_id,
         text="Что вы хотите сделать дальше? 👇",
         reply_markup=get_main_keyboard()
     )
 
+# Очистка логов
 async def handle_clear_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -152,6 +165,7 @@ async def handle_clear_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await query.message.reply_text(f"❌ Ошибка при удалении лога: {e}")
 
+# Запуск бота
 def main():
     app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
 
