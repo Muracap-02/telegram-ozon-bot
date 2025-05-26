@@ -21,7 +21,8 @@ MODE_CHOICE = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("▶️ Обработать на части", callback_data="chunk")],
+        [InlineKeyboardButton("▶️ Обработать на части (1000)", callback_data="chunk")],
+        [InlineKeyboardButton("▶️ Обработать на части (500)", callback_data="chunk500")],
         [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -52,12 +53,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_file = f.name
 
     if mode == "chunk":
-        await process_in_parts(update, context, data_file)
+        await process_in_parts(update, context, data_file, chunk_size=1000)
+    elif mode == "chunk500":
+        await process_in_parts(update, context, data_file, chunk_size=500)
     elif mode == "passport":
         await process_passport_macro(update, context, data_file)
 
-async def process_in_parts(update, context, data_file):
-    logger.info("[LOG] Обработка: разбивка на части")
+async def process_in_parts(update, context, data_file, chunk_size=1000):
+    logger.info(f"[LOG] Обработка: разбивка на части по {chunk_size} шт.")
     df = pd.read_excel(data_file, header=None, skiprows=3)
 
     def fix_code(x):
@@ -79,7 +82,6 @@ async def process_in_parts(update, context, data_file):
         else:
             seen.add(val)
 
-    chunk_size = 1000
     parts = [df[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
 
     output_files = []
