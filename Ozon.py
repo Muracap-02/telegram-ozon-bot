@@ -1,4 +1,3 @@
-
 import os
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -10,29 +9,37 @@ import tempfile
 import logging
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
-import zipfile
 from openpyxl.cell.cell import MergedCell
+import zipfile
 
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Пути к шаблону (замени на свой путь)
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
 MODE_CHOICE = {}
-PINFL_STEP, PINFL_SOURCE, PINFL_PINFL = range(3)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Состояния для ConversationHandler (для замены ПИНФЛ)
+LOAD_SOURCE, LOAD_PINFL = range(2)
+
+# Клавиатура выбора режима
+def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("▶️ Обработать на части (1000)", callback_data="chunk")],
         [InlineKeyboardButton("▶️ Обработать на части (500)", callback_data="chunk500")],
         [InlineKeyboardButton("▶️ Обработать на части (250)", callback_data="chunk250")],
         [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
-        [InlineKeyboardButton("🔄 Замена ПИНФЛ", callback_data="pinfl_replace")],
+        [InlineKeyboardButton("🔄 Замена ПИНФЛ", callback_data="replace_pinfl")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите режим обработки:", reply_markup=reply_markup)
+    return InlineKeyboardMarkup(keyboard)
 
+# /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
+
+# Выбор режима по кнопке
 async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -40,14 +47,15 @@ async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     MODE_CHOICE[user_id] = query.data
 
-    if query.data == "pinfl_replace":
-        await query.message.reply_text("Пожалуйста, загрузите файл реестра (source).")
-        context.user_data['pinfl_step'] = PINFL_SOURCE
-        return PINFL_STEP
-    else:
-        await query.message.reply_text("Отправьте Excel-файл для выбранной обработки.")
-        return ConversationHandler.END
+    if query.data == "replace_pinfl":
+        # Запускаем Conversation для загрузки двух файлов
+        await query.message.reply_text("Пожалуйста, загрузите файл реестра (source_file).")
+        return LOAD_SOURCE
 
+    await query.message.reply_text("Отправьте Excel-файл для выбранной обработки.")
+    return ConversationHandler.END
+
+# Обработка файлов при chunk и passport режимах
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_id = user.id
@@ -71,23 +79,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await process_in_parts(update, context, data_file, chunk_size=250)
     elif mode == "passport":
         await process_passport_macro(update, context, data_file)
-    else:
-        await update.message.reply_text("Неизвестный режим обработки.")
-        return
 
     # После обработки показываем кнопки заново
-    keyboard = [
-        [InlineKeyboardButton("▶️ Обработать на части (1000)", callback_data="chunk")],
-        [InlineKeyboardButton("▶️ Обработать на части (500)", callback_data="chunk500")],
-        [InlineKeyboardButton("▶️ Обработать на части (250)", callback_data="chunk250")],
-        [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
-        [InlineKeyboardButton("🔄 Замена ПИНФЛ", callback_data="pinfl_replace")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Выберите режим обработки:", reply_markup=reply_markup)
+    await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
 
+# Обработка разбивки на части
 async def process_in_parts(update, context, data_file, chunk_size=1000):
-    logger.info(f"[LOG] Обработка: разбивка на части по {chunk_size} шт.")
+    logger.info(f"Обработка: разбивка на части по {chunk_size} шт.")
     df = pd.read_excel(data_file, header=None, skiprows=3)
 
     def fix_code(x):
@@ -125,7 +123,7 @@ async def process_in_parts(update, context, data_file, chunk_size=1000):
         output_path = os.path.join(tempfile.gettempdir(), filename)
         wb.save(output_path)
         output_files.append(output_path)
-        logger.info(f"[LOG] Сохранён файл: {filename}")
+        logger.info(f"Сохранён файл: {filename}")
 
     zip_path = os.path.join(tempfile.gettempdir(), f"AllPackageEC_{update.message.from_user.username}.zip")
     with zipfile.ZipFile(zip_path, 'w') as zipf:
@@ -135,8 +133,9 @@ async def process_in_parts(update, context, data_file, chunk_size=1000):
     await update.message.reply_text("Обработка завершена. Архив отправляется...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
+# Макрос Пасспорт
 async def process_passport_macro(update, context, data_file):
-    logger.info("[LOG] Выполняется макрос 'Пасспорт'")
+    logger.info("Выполняется макрос 'Пасспорт'")
     wb = load_workbook(data_file)
     ws = wb.active
 
@@ -153,82 +152,89 @@ async def process_passport_macro(update, context, data_file):
     await update.message.reply_text("Макрос выполнен. Файл отправляется...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_path, 'rb'))
 
-# --- Обработка замены ПИНФЛ ---
+# --- Функции для замены ПИНФЛ (ConversationHandler) ---
 
-async def pinfl_file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Хранение путей загруженных файлов для пользователя
+USER_FILES = {}
+
+async def load_source_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
+    if not document or not document.file_name.endswith('.xlsx'):
+        await update.message.reply_text("Пожалуйста, загрузите корректный Excel-файл реестра.")
+        return LOAD_SOURCE
+
     file = await context.bot.get_file(document.file_id)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         await file.download_to_drive(f.name)
-        data_file = f.name
+        USER_FILES[update.message.from_user.id] = {'source_file': f.name}
 
-    step = context.user_data.get('pinfl_step')
-    if step == PINFL_SOURCE:
-        context.user_data['pinfl_source'] = data_file
-        context.user_data['pinfl_step'] = PINFL_PINFL
-        await update.message.reply_text("Теперь загрузите файл с результатами ПИНФЛ.")
-        return PINFL_STEP
-    elif step == PINFL_PINFL:
-        context.user_data['pinfl_pinfl'] = data_file
-        await update.message.reply_text("Файлы получены. Выполняю замену ПИНФЛ...")
-        await replace_pinfl(update, context)
-        context.user_data.clear()
-        # После обработки показываем кнопки заново
-        keyboard = [
-            [InlineKeyboardButton("▶️ Обработать на части (1000)", callback_data="chunk")],
-            [InlineKeyboardButton("▶️ Обработать на части (500)", callback_data="chunk500")],
-            [InlineKeyboardButton("▶️ Обработать на части (250)", callback_data="chunk250")],
-            [InlineKeyboardButton("📄 Макрос Пасспорт", callback_data="passport")],
-            [InlineKeyboardButton("🔄 Замена ПИНФЛ", callback_data="pinfl_replace")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Выберите режим обработки:", reply_markup=reply_markup)
-        return ConversationHandler.END
-    else:
-        await update.message.reply_text("Что-то пошло не так. Начните заново с /start.")
+    await update.message.reply_text("Файл реестра получен. Теперь загрузите файл с результатами ПИНФЛ.")
+    return LOAD_PINFL
+
+async def load_pinfl_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    document = update.message.document
+    if not document or not document.file_name.endswith('.xlsx'):
+        await update.message.reply_text("Пожалуйста, загрузите корректный Excel-файл результатов ПИНФЛ.")
+        return LOAD_PINFL
+
+    file = await context.bot.get_file(document.file_id)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
+        await file.download_to_drive(f.name)
+        USER_FILES[update.message.from_user.id]['pinfl_file'] = f.name
+
+    # Запускаем замену ПИНФЛ
+    user_id = update.message.from_user.id
+    files = USER_FILES.get(user_id)
+    if not files or 'source_file' not in files or 'pinfl_file' not in files:
+        await update.message.reply_text("Ошибка: не все файлы загружены.")
         return ConversationHandler.END
 
-async def replace_pinfl(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    source_file = context.user_data.get('pinfl_source')
-    pinfl_file = context.user_data.get('pinfl_pinfl')
-    if not source_file or not pinfl_file:
-        await update.message.reply_text("Ошибка: файлы не найдены. Попробуйте заново /start.")
-        return
+    await update.message.reply_text("Файлы получены. Выполняется замена ПИНФЛ...")
 
-    # Загружаем файл pinfl, без заголовков
+    output_file = os.path.join(tempfile.gettempdir(), f"AllPackageEC_GOOD_{user_id}.xlsx")
+    try:
+        replace_pinfl(files['source_file'], files['pinfl_file'], output_file)
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка при замене ПИНФЛ: {e}")
+        return ConversationHandler.END
+
+    await update.message.reply_text("Замена ПИНФЛ завершена. Отправляю файл...")
+    await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_file, 'rb'))
+
+    # Очистка
+    USER_FILES.pop(user_id, None)
+
+    # Показываем меню заново
+    await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
+
+    return ConversationHandler.END
+
+def replace_pinfl(source_file, pinfl_file, output_file):
+    # Загружаем файл pinfl без заголовков
     df2 = pd.read_excel(pinfl_file, header=None)
 
-    # Создаём словарь: паспорт -> ПИНФЛ
+    # Создаём словарь паспорт -> ПИНФЛ
     passport_to_pinfl = dict(
         zip(df2.iloc[:, 8].astype(str).str.strip().str.upper(), df2.iloc[:, 9])
     )
 
-    # Загружаем оригинальный Excel-файл со стилями
     wb = load_workbook(filename=source_file)
-    ws = wb.active  # активный лист
+    ws = wb.active
 
-    # Допустимые символы начала паспорта
     valid_start = tuple('0123456789KJTIFHBMNCXZSDQWRYUPLE')
-
-    # Лог замен
     replacements = []
 
-    # Проходим по строкам начиная со второй
     for row in ws.iter_rows(min_row=2):
-        cell_e = row[4]  # колонка E (паспорт)
-        cell_f = row[5]  # колонка F (дата рождения)
+        cell_e = row[4]
+        cell_f = row[5]
         val = cell_e.value
 
-        # Если ячейка пустая — ставим паспорт и дату
         if val is None or str(val).strip() == '':
             cell_e.value = 'AB0663236'
             if not isinstance(cell_f, MergedCell):
                 cell_f.value = '23.12.1988'
-            else:
-                print(f"⚠️ Пропущена объединённая ячейка в строке {cell_f.row}")
             continue
 
-        # Если значение валидное — пробуем заменить по словарю
         key = str(val).strip().upper()
         if key.startswith(valid_start):
             pinfl = passport_to_pinfl.get(key)
@@ -236,20 +242,17 @@ async def replace_pinfl(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 replacements.append((val, pinfl))
                 cell_e.value = pinfl
 
-    # Сохраняем результат
-    output_file = os.path.join(tempfile.gettempdir(), f"AllPackageEC_GOOD_{update.message.from_user.username}.xlsx")
     wb.save(output_file)
 
-    # Запись лога замен
-    log_path = os.path.join(tempfile.gettempdir(), f"замены_log_{update.message.from_user.username}.txt")
-    with open(log_path, 'w', encoding='utf-8') as log_file:
+    # Запись лога замен с исправленной f-строкой
+    with open('замены_log.txt', 'w', encoding='utf-8') as log_file:
         for old, new in replacements:
-            log_file.write(f'{old} → {new}
-')
+            log_file.write(f'{old} → {new}\n')
 
-    await update.message.reply_text(f'✅ Готово! Файл сохранён. Отправляю... Заменено {len(replacements)} паспортов.')
-    await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_file, 'rb'))
-    await context.bot.send_document(chat_id=update.message.chat_id, document=open(log_path, 'rb'))
+    logger.info(f'Готово! Файл сохранён как {output_file}')
+    logger.info(f'Заменено {len(replacements)} паспортов.')
+
+# --- Основной запуск ---
 
 def main():
     app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
@@ -257,9 +260,10 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(mode_selected)],
         states={
-            PINFL_STEP: [MessageHandler(filters.Document.FileExtension("xlsx"), pinfl_file_received)],
+            LOAD_SOURCE: [MessageHandler(filters.Document.FileExtension("xlsx"), load_source_file)],
+            LOAD_PINFL: [MessageHandler(filters.Document.FileExtension("xlsx"), load_pinfl_file)],
         },
-        fallbacks=[CommandHandler('start', start)],
+        fallbacks=[],
         allow_reentry=True,
     )
 
@@ -267,8 +271,8 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.Document.FileExtension("xlsx"), handle_file))
 
-    logger.info("[LOG] Бот запущен...")
+    logger.info("Бот запущен")
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
