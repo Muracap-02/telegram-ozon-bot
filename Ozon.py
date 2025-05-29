@@ -1,3 +1,4 @@
+# начало — те же импорты и переменные
 import os
 import pandas as pd
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,16 +16,13 @@ import zipfile
 logging.basicConfig(format='[LOG] %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Пути к шаблону (замени на свой путь)
 TEMPLATE_FILENAME = "AllPackageEC_.xlsx"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), TEMPLATE_FILENAME)
 
 MODE_CHOICE = {}
-
-# Состояния для ConversationHandler (для замены ПИНФЛ)
 LOAD_SOURCE, LOAD_PINFL = range(2)
+USER_FILES = {}
 
-# Клавиатура выбора режима
 def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("▶️ Обработать на части (1000)", callback_data="chunk")],
@@ -35,27 +33,22 @@ def get_main_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
 
-# Выбор режима по кнопке
 async def mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     user_id = query.from_user.id
     MODE_CHOICE[user_id] = query.data
 
     if query.data == "replace_pinfl":
-        # Запускаем Conversation для загрузки двух файлов
         await query.message.reply_text("Пожалуйста, загрузите файл реестра (source_file).")
         return LOAD_SOURCE
 
     await query.message.reply_text("Отправьте Excel-файл для выбранной обработки.")
     return ConversationHandler.END
 
-# Обработка файлов при chunk и passport режимах
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     user_id = user.id
@@ -76,15 +69,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif mode == "chunk500":
         await process_in_parts(update, context, data_file, chunk_size=500)
     elif mode == "chunk250":
-        await process_in_parts(update, context, data_file, chunk_size=250)
+        await process_in_parts(update, context, data_file, chunk_size=250, dynamic_naming=True)
     elif mode == "passport":
         await process_passport_macro(update, context, data_file)
 
-    # После обработки показываем кнопки заново
     await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
 
-# Обработка разбивки на части
-async def process_in_parts(update, context, data_file, chunk_size=1000):
+async def process_in_parts(update, context, data_file, chunk_size=1000, dynamic_naming=False):
     logger.info(f"Обработка: разбивка на части по {chunk_size} шт.")
     df = pd.read_excel(data_file, header=None, skiprows=3)
 
@@ -118,8 +109,8 @@ async def process_in_parts(update, context, data_file, chunk_size=1000):
             for c_idx, value in enumerate(row, start=1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
 
-        start_range = idx * chunk_size
-        filename = f"AllPackageEC_{start_range}.xlsx"
+        start_index = idx * chunk_size if not dynamic_naming else idx * 250
+        filename = f"AllPackageEC_{start_index}.xlsx"
         output_path = os.path.join(tempfile.gettempdir(), filename)
         wb.save(output_path)
         output_files.append(output_path)
@@ -133,7 +124,6 @@ async def process_in_parts(update, context, data_file, chunk_size=1000):
     await update.message.reply_text("Обработка завершена. Архив отправляется...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(zip_path, 'rb'))
 
-# Макрос Пасспорт
 async def process_passport_macro(update, context, data_file):
     logger.info("Выполняется макрос 'Пасспорт'")
     wb = load_workbook(data_file)
@@ -152,11 +142,7 @@ async def process_passport_macro(update, context, data_file):
     await update.message.reply_text("Макрос выполнен. Файл отправляется...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_path, 'rb'))
 
-# --- Функции для замены ПИНФЛ (ConversationHandler) ---
-
-# Хранение путей загруженных файлов для пользователя
-USER_FILES = {}
-
+# --- ПИНФЛ замена ---
 async def load_source_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if not document or not document.file_name.endswith('.xlsx'):
@@ -182,7 +168,6 @@ async def load_pinfl_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await file.download_to_drive(f.name)
         USER_FILES[update.message.from_user.id]['pinfl_file'] = f.name
 
-    # Запускаем замену ПИНФЛ
     user_id = update.message.from_user.id
     files = USER_FILES.get(user_id)
     if not files or 'source_file' not in files or 'pinfl_file' not in files:
@@ -201,19 +186,12 @@ async def load_pinfl_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Замена ПИНФЛ завершена. Отправляю файл...")
     await context.bot.send_document(chat_id=update.message.chat_id, document=open(output_file, 'rb'))
 
-    # Очистка
     USER_FILES.pop(user_id, None)
-
-    # Показываем меню заново
     await update.message.reply_text("Выберите режим обработки:", reply_markup=get_main_keyboard())
-
     return ConversationHandler.END
 
 def replace_pinfl(source_file, pinfl_file, output_file):
-    # Загружаем файл pinfl без заголовков
     df2 = pd.read_excel(pinfl_file, header=None)
-
-    # Создаём словарь паспорт -> ПИНФЛ
     passport_to_pinfl = dict(
         zip(df2.iloc[:, 8].astype(str).str.strip().str.upper(), df2.iloc[:, 9])
     )
@@ -243,16 +221,12 @@ def replace_pinfl(source_file, pinfl_file, output_file):
                 cell_e.value = pinfl
 
     wb.save(output_file)
-
-    # Запись лога замен с исправленной f-строкой
     with open('замены_log.txt', 'w', encoding='utf-8') as log_file:
         for old, new in replacements:
             log_file.write(f'{old} → {new}\n')
 
     logger.info(f'Готово! Файл сохранён как {output_file}')
     logger.info(f'Заменено {len(replacements)} паспортов.')
-
-# --- Основной запуск ---
 
 def main():
     app = ApplicationBuilder().token("7872241701:AAF633V3rjyXTJkD8F0lEW13nDtAqHoqeic").build()
